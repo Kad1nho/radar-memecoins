@@ -25,44 +25,35 @@ if not DATABASE_URL:
 app = Flask(__name__, static_folder="static")
 lock = threading.Lock()
 
-def _connect():
-    return psycopg2.connect(DATABASE_URL)
-
-db = _connect()
 
 def q(sql, a=()):
-    """Executa SQL com placeholders %s. Reconecta uma vez se a ligação cair em idle."""
-    global db
+    """Executa SQL. Abre uma ligação nova por query — evita hangs por ligações zombie
+    (Neon free tier suspende compute em idle e a ligação TCP pode ficar meio-aberta)."""
     with lock:
+        conn = psycopg2.connect(
+            DATABASE_URL,
+            connect_timeout=10,
+            keepalives=1,
+            keepalives_idle=30,
+            keepalives_interval=10,
+            keepalives_count=3,
+        )
         try:
-            cur = db.cursor()
+            cur = conn.cursor()
             cur.execute(sql, a)
             try:
                 r = cur.fetchall()
             except psycopg2.ProgrammingError:
                 r = []
-            db.commit()
+            conn.commit()
             cur.close()
             return r
-        except psycopg2.InterfaceError:
+        finally:
             try:
-                db = _connect()
-                cur = db.cursor()
-                cur.execute(sql, a)
-                try:
-                    r = cur.fetchall()
-                except psycopg2.ProgrammingError:
-                    r = []
-                db.commit()
-                cur.close()
-                return r
+                conn.close()
             except Exception:
-                db.rollback()
-                raise
-        except Exception:
-            try: db.rollback()
-            except Exception: pass
-            raise
+                pass
+
 
 # --- Schema ---
 for stmt in (
