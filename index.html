@@ -1,0 +1,55 @@
+<!doctype html><html lang="pt"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Radar de memecoins</title>
+<style>
+:root{--bg:#141a22;--p:#1d2530;--l:#2d3846;--t:#e9e6de;--m:#93a0b0;--ok:#5fd39a;--bad:#ff7166;--am:#f0b95a;--ac:#7cc4ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--t);font:15px/1.5 "Segoe UI",system-ui,sans-serif;padding:16px;max-width:1000px;margin:auto}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:26px 0 8px}small,.m{color:var(--m)}
+.n{font-variant-numeric:tabular-nums}.box{background:var(--p);border:1px solid var(--l);border-radius:8px;padding:12px 14px;margin:8px 0}
+.aviso{border-color:var(--am);background:#2a2618}.sair{border-color:var(--bad);background:#33201f}.parcial{border-color:var(--ok)}
+.linha{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}.sc{font-size:26px;font-weight:700;color:var(--ac);min-width:44px}
+.tag{font-size:12px;padding:1px 8px;border-radius:10px;border:1px solid var(--l);color:var(--m)}.tag.ok{color:var(--ok);border-color:var(--ok)}
+.g{color:var(--ok)}.r{color:var(--bad)}a{color:var(--ac)}input,button{font:inherit;padding:8px 10px;border-radius:6px;border:1px solid var(--l);background:var(--bg);color:var(--t)}
+button{background:var(--ac);color:#0b1520;border:0;cursor:pointer;font-weight:600}button:focus-visible,input:focus-visible{outline:2px solid var(--am)}
+table{width:100%;border-collapse:collapse}td,th{padding:6px 4px;border-bottom:1px solid var(--l);text-align:left}
+</style></head><body>
+<h1>Radar de memecoins (Solana)</h1><small id="up" class="m">a carregar…</small>
+<div class="box aviso"><b>Limite real:</b> os alertas de saída chegam até 10 s depois do movimento acontecer, mais o teu tempo de reação. Memecoins pequenas podem cair 50% ou mais nesse intervalo. O site não vende por ti — é aviso, não execução automática.</div>
+<div id="modo"></div><div id="erro"></div>
+<h2>Execução automática <small class="m">(papel · capital simulado $10)</small></h2><div id="auto"></div>
+<div id="curva-wrap" class="box" style="display:none"><div class="linha"><b>Evolução da banca</b><small class="m" id="curva-info"></small></div><svg id="curva" width="100%" height="110" viewBox="0 0 600 110" preserveAspectRatio="none"></svg></div>
+<h2>Minhas posições <small class="m">(manuais, para os teus próprios testes)</small></h2><div id="pos"></div>
+<form id="f" class="linha"><input id="a" placeholder="Endereço do token" size="34" required><input id="p" placeholder="Preço de compra (opcional)" size="20"><button>Registar compra</button></form>
+<h2>Oportunidades agora</h2><div id="cands"></div>
+<h2>Rejeitados no último varrimento <small class="m">(risco alto — não entrar)</small></h2><div id="rej"></div>
+<h2>Desempenho medido dos sinais</h2><div id="st"></div>
+<h2>Últimos sinais</h2><div id="sig"></div>
+<script>
+const $=id=>document.getElementById(id),f=(x,d=2)=>Number(x).toLocaleString('pt',{maximumFractionDigits:d}),cls=x=>x>=0?'g':'r';
+let vistos={};Notification.requestPermission&&Notification.requestPermission();
+async function ler(){try{const d=await (await fetch('/api/estado')).json();
+$('up').textContent=d.atualizado?'Atualizado às '+new Date(d.atualizado*1000).toLocaleTimeString('pt'):'a fazer a primeira análise…';
+$('erro').innerHTML=d.erro?`<div class="box sair">Falha ao obter dados: ${d.erro}. Vai tentar de novo em 90 s.</div>`:'';
+const algum=d.stats.some(s=>s.apto);
+$('modo').innerHTML=algum?'':`<div class="box aviso"><b>Modo aprendizagem.</b> Nenhuma faixa tem ainda 100 sinais fechados com 75% de acerto e expectativa positiva. Os sinais abaixo são treino: não uses dinheiro real por causa deles.</div>`;
+const A=d.auto;$('auto').innerHTML=`<div class="box${A.disjuntor?' sair':''}"><div class="linha"><b>Banca agora: $${A.saldo}</b><small class="m">base $${A.capital} · posição $${A.tamanho} · até ${A.max_simultaneas} em simultâneo · limite de perda/dia $${A.limite_dia}</small><span class="n ${cls(A.pnl_hoje)}">hoje ${A.pnl_hoje>0?'+':''}$${A.pnl_hoje}</span></div><small class="m">gas estimado agora (ida+volta): $${A.gas_agora}</small>${A.disjuntor?'<b class="r">DISJUNTOR ATIVO: sem novas posições automáticas até amanhã.</b>':''}</div>`+
+(A.abertas.length?A.abertas.map(p=>`<div class="box"><div class="linha"><b>${p.sym}</b><small class="n">compra $${p.p0} · vale agora $${p.valor} · gas $${p.gas} · swap/jupiter $${p.swap}${p.parcial?' · parcial feita':''}</small><span class="n ${cls(p.pnl_usd)}">${p.pnl_usd>0?'+':''}$${p.pnl_usd}</span></div></div>`).join(''):'<small>Sem posições automáticas abertas agora. Abrem sozinhas quando um candidato confirmar pontuação mínima em 2 varrimentos seguidos.</small>')+
+(A.historico.length?'<table><tr><th>Símbolo<th>Resultado (já líquido)<th>Motivo</tr>'+A.historico.map(h=>`<tr class="n"><td>${h.sym}<td class="${cls(h.pnl_usd)}">${h.pnl_usd>0?'+':''}$${h.pnl_usd}<td><small>${h.motivo} · gas $${h.gas} · swap $${h.swap}</small></tr>`).join('')+'</table>':'');
+if(A.curva&&A.curva.length>=2){
+  const vs=A.curva.map(p=>p.saldo),mn=Math.min(...vs,A.capital),mx=Math.max(...vs,A.capital),W=600,H=110,pad=4;
+  const sx=i=>pad+i*(W-2*pad)/(A.curva.length-1),sy=v=>H-pad-(v-mn)/((mx-mn)||1)*(H-2*pad);
+  const pts=A.curva.map((p,i)=>`${sx(i)},${sy(p.saldo)}`).join(' ');
+  const base=sy(A.capital);
+  document.getElementById('curva-wrap').style.display='';
+  document.getElementById('curva-info').textContent=`mín $${mn.toFixed(2)} · máx $${mx.toFixed(2)} · ${A.curva.length} pontos`;
+  document.getElementById('curva').innerHTML=`<line x1="0" y1="${base}" x2="${W}" y2="${base}" stroke="#2d3846" stroke-dasharray="4"/><polyline points="${pts}" fill="none" stroke="${vs[vs.length-1]>=A.capital?'#5fd39a':'#ff7166'}" stroke-width="2"/>`;
+}
+$('pos').innerHTML=d.pos.map(p=>{if(p.nivel&&vistos[p.id]!=p.msg&&Notification.permission=='granted')new Notification(p.sym,{body:p.msg});vistos[p.id]=p.msg;
+return `<div class="box ${p.nivel||''}"><div class="linha"><b>${p.sym}</b><span class="n ${cls(p.pnl)}">${p.pnl>0?'+':''}${f(p.pnl,1)}%</span><small class="n">compra ${p.p0} · agora ${p.preco}</small><button onclick="fechar(${p.id})">Fechar</button></div>${p.nivel?`<b class="${p.nivel=='sair'?'r':'g'}">${p.nivel=='sair'?'SAIR AGORA':'REALIZAR PARTE'}: ${p.msg}</b>`:'<small>Sem alerta de saída.</small>'}</div>`}).join('')||'<small>Nenhuma posição aberta. Regista uma compra abaixo para receber alertas de saída.</small>';
+$('cands').innerHTML=d.cands.map(c=>`<div class="box"><div class="linha"><span class="sc n">${c.score}</span><b>${c.sym}</b><span class="tag ${c.apto?'ok':''}">${c.apto?'apto':c.elegivel?'aprendizagem':'abaixo do mínimo'}</span>${c.elegivel?`<span class="tag${c.confirmado?' ok':''}">${c.confirmado?'confirmado (2 varrimentos)':'a confirmar…'}</span>`:'<span class="tag">só estatística (abaixo do mínimo p/ auto)</span>'}<small class="n">liq. $${f(c.liq,0)} · 1h ${f(c.ch1,0)}% · ${c.idade} h</small><a href="${c.url}" target="_blank" rel="noopener">gráfico</a><a href="${c.rug_url}" target="_blank" rel="noopener">RugCheck</a></div><small>${c.razoes.join(' · ')}</small><br><small class="n">${c.addr}</small></div>`).join('')||'<small>Sem candidatos que passem os filtros mínimos. Isto é normal — a maioria dos tokens novos falha em segurança.</small>';
+$('rej').innerHTML=(d.rejeitados||[]).map(c=>`<div class="box sair"><div class="linha"><b>${c.sym}</b><small class="n">liq. $${f(c.liq,0)}</small></div><small>${c.rejeitado}</small></div>`).join('')||'<small>Nenhum token analisado ainda neste varrimento.</small>';
+$('st').innerHTML='<table><tr><th>Pontuação<th>Sinais fechados<th>Acerto<th>Ganho médio<th>Estado</tr>'+d.stats.map(s=>`<tr class="n"><td>${s.faixa}<td>${s.n}<td>${s.n?s.acerto+'%':'–'}<td class="${cls(s.exp)}">${s.n?s.exp+'%':'–'}<td>${s.apto?'apto':'sem dados suficientes'}</tr>`).join('')+'</table>';
+$('sig').innerHTML='<table>'+d.sinais.map(s=>`<tr class="n"><td>${s.sym}<td>${s.score}<td>${s.estado=='aberto'?'aberto':`<span class="${cls(s.pnl)}">${s.pnl}%</span> <small>${s.motivo}</small>`}</tr>`).join('')+'</table>'}catch(e){$('erro').innerHTML='<div class="box sair">Sem ligação à app. Confirma que o serviço está online.</div>'}}
+$('f').onsubmit=async e=>{e.preventDefault();const r=await fetch('/api/posicao',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({addr:$('a').value,p0:$('p').value})});if(!r.ok)alert((await r.json()).erro);else{$('a').value=$('p').value='';ler()}};
+async function fechar(i){await fetch(`/api/posicao/${i}/fechar`,{method:'POST'});ler()}
+ler();setInterval(ler,15000);
+</script></body></html>
